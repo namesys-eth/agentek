@@ -70,7 +70,6 @@ export const intentApproveTool = createTool({
               decimals,
             };
           } catch (error) {
-            console.error(`Error processing chain ${chain.id}:`, error);
             return undefined;
           }
         }),
