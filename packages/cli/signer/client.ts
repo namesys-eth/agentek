@@ -1,6 +1,6 @@
 import { connect, type Socket } from "node:net";
 import { toAccount } from "viem/accounts";
-import { isHex, toHex, type Account, type Hex, type SignableMessage, type TransactionSerializable, type TypedDataDefinition } from "viem";
+import { isHex, toHex, type Account, type Hex, type SignableMessage, type TransactionSerializable } from "viem";
 import {
   getSocketPath,
   RPC_METHODS,
@@ -110,10 +110,10 @@ export function createDaemonAccount(address: Hex): Account {
       return res.result as Hex;
     },
 
-    async signTypedData(typedData: TypedDataDefinition): Promise<Hex> {
+    async signTypedData(typedData): Promise<Hex> {
       const res = await sendRpcRequest(RPC_METHODS.SIGN_TYPED_DATA, typedData);
       if (res.error) throw new Error(res.error.message);
       return res.result as Hex;
     },
-  }) as unknown as Account;
+  }) as Account;
 }

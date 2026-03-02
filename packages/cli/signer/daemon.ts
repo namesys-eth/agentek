@@ -78,7 +78,12 @@ export function startDaemon(payload: DecryptedPayload): Promise<void> {
           if (!line.trim()) continue;
 
           handleMessage(line, account, policy).then((response) => {
-            conn.write(JSON.stringify(response) + "\n");
+            if (!conn.destroyed) conn.write(JSON.stringify(response) + "\n");
+          }).catch((err) => {
+            if (!conn.destroyed) {
+              const fallback = makeError(0, RPC_ERRORS.INTERNAL_ERROR, err?.message || "Internal error");
+              try { conn.write(JSON.stringify(fallback) + "\n"); } catch {}
+            }
           });
         }
       });

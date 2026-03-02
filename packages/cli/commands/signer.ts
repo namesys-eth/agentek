@@ -5,6 +5,7 @@ import { keyfileExists, readKeyfile, writeKeyfile, encrypt, decrypt } from "../s
 import { defaultPolicy } from "../signer/policy.js";
 import { startDaemon, stopDaemon, getDaemonStatus } from "../signer/daemon.js";
 import { isDaemonReachable, getDaemonAddress, shutdownDaemon } from "../signer/client.js";
+import { getKeyfilePath } from "../signer/protocol.js";
 import type { DecryptedPayload, PolicyConfig } from "../signer/protocol.js";
 
 /** Prompt for passphrase and decrypt the keyfile. */
@@ -28,11 +29,11 @@ export async function handleSigner(args: string[]): Promise<void> {
 
   if (sub === "init") {
     if (keyfileExists()) {
-      outputError("Keyfile already exists. Delete ~/.agentek/keyfile.enc to reinitialize.");
+      outputError(`Keyfile already exists. Delete ${getKeyfilePath()} to reinitialize.`);
     }
 
     const privateKey = await readLine("Private key (hex, 0x...): ", true);
-    if (!privateKey || !isHex(privateKey as Hex)) {
+    if (!privateKey || !isHex(privateKey)) {
       outputError("Invalid private key format. Must be hex starting with 0x.");
     }
 
@@ -50,7 +51,7 @@ export async function handleSigner(args: string[]): Promise<void> {
     const keyfile = encrypt(payload, passphrase);
     writeKeyfile(keyfile);
 
-    process.stderr.write("Keyfile created at ~/.agentek/keyfile.enc\n");
+    process.stderr.write(`Keyfile created at ${getKeyfilePath()}\n`);
     process.stderr.write("Default policy applied. Use 'agentek signer policy' to view.\n");
     outputJson({ ok: true });
   } else if (sub === "start") {
@@ -72,7 +73,7 @@ export async function handleSigner(args: string[]): Promise<void> {
     const status = getDaemonStatus();
     if (!status.running) {
       process.stderr.write("Daemon is not running.\n");
-      outputJson({ ok: true, wasRunning: false });
+      return outputJson({ ok: true, wasRunning: false });
     }
 
     try {
@@ -81,7 +82,7 @@ export async function handleSigner(args: string[]): Promise<void> {
         // Socket unreachable while pidfile exists => stale local state.
         stopDaemon();
         process.stderr.write(`Signer daemon appears unreachable (stale state for PID ${status.pid}). Cleaned local state only.\n`);
-        outputJson({ ok: true, wasRunning: false, staleStateCleaned: true, pid: status.pid });
+        return outputJson({ ok: true, wasRunning: false, staleStateCleaned: true, pid: status.pid });
       }
 
       await shutdownDaemon();
