@@ -15,6 +15,7 @@ import {
 import { evaluatePolicy, type TxRequest } from "./policy.js";
 
 let server: Server | null = null;
+const MAX_RPC_MESSAGE_BYTES = 256 * 1024;
 
 function makeResponse(id: number, result: unknown): JsonRpcResponse {
   return { jsonrpc: "2.0", id, result };
@@ -70,12 +71,39 @@ export function startDaemon(payload: DecryptedPayload): Promise<void> {
       conn.on("data", (chunk) => {
         buffer += chunk.toString();
 
+        if (Buffer.byteLength(buffer, "utf8") > MAX_RPC_MESSAGE_BYTES) {
+          const err = makeError(
+            0,
+            RPC_ERRORS.INVALID_REQUEST,
+            `RPC message too large (max ${MAX_RPC_MESSAGE_BYTES} bytes)`,
+          );
+          if (!conn.destroyed) {
+            try { conn.write(JSON.stringify(err) + "\n"); } catch {}
+          }
+          conn.destroy();
+          buffer = "";
+          return;
+        }
+
         // Process complete JSON-RPC messages (newline-delimited)
         let newlineIdx: number;
         while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
           const line = buffer.slice(0, newlineIdx);
           buffer = buffer.slice(newlineIdx + 1);
           if (!line.trim()) continue;
+
+          if (Buffer.byteLength(line, "utf8") > MAX_RPC_MESSAGE_BYTES) {
+            const err = makeError(
+              0,
+              RPC_ERRORS.INVALID_REQUEST,
+              `RPC message too large (max ${MAX_RPC_MESSAGE_BYTES} bytes)`,
+            );
+            if (!conn.destroyed) {
+              try { conn.write(JSON.stringify(err) + "\n"); } catch {}
+            }
+            conn.destroy();
+            return;
+          }
 
           handleMessage(line, account, policy).then((response) => {
             if (!conn.destroyed) conn.write(JSON.stringify(response) + "\n");

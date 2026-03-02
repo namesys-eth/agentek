@@ -7,10 +7,11 @@ import { createServer, connect, type Server } from "node:net";
 import { encrypt, decrypt } from "./signer/crypto.js";
 import { defaultPolicy, evaluatePolicy } from "./signer/policy.js";
 import { createDaemonAccount } from "./signer/client.js";
+import { startDaemon, stopDaemon } from "./signer/daemon.js";
 import { privateKeyToAccount } from "viem/accounts";
 import type { Hex, SignableMessage, TransactionSerializable, TypedDataDefinition } from "viem";
 import type { DecryptedPayload, JsonRpcRequest, JsonRpcResponse, AgentekKeyfile } from "./signer/protocol.js";
-import { RPC_METHODS, RPC_ERRORS } from "./signer/protocol.js";
+import { RPC_METHODS, RPC_ERRORS, getSocketPath } from "./signer/protocol.js";
 
 // Use path.resolve to avoid naming collision with Promise resolve
 import { resolve as resolvePath } from "node:path";
@@ -168,6 +169,38 @@ describe("Signer — policy", () => {
     });
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain("999999");
+  });
+
+  it("should reject transactions when chainId is missing", () => {
+    const policy = defaultPolicy();
+    const result = evaluatePolicy(policy, {
+      to: "0x1234567890abcdef1234567890abcdef12345678",
+      value: 0n,
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("chainId is required");
+  });
+
+  it("should reject contract creation when allowContractCreation is false", () => {
+    const policy = defaultPolicy();
+    const result = evaluatePolicy(policy, {
+      chainId: 1,
+      data: "0x6000",
+      value: 0n,
+    });
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain("Contract creation is disabled");
+  });
+
+  it("should allow contract creation when allowContractCreation is true", () => {
+    const policy = defaultPolicy();
+    policy.allowContractCreation = true;
+    const result = evaluatePolicy(policy, {
+      chainId: 1,
+      data: "0x6000",
+      value: 0n,
+    });
+    expect(result.allowed).toBe(true);
   });
 
   it("should reject transaction exceeding value cap", () => {
@@ -476,6 +509,52 @@ describe("Signer — daemon integration", () => {
     expect(res.error!.message).toContain("999999");
   }, 10_000);
 
+  it("should reject transaction when chainId is missing", async () => {
+    const socketPath = await startTestDaemon();
+    const res = await sendRpc(socketPath, RPC_METHODS.SIGN_TRANSACTION, {
+      to: "0x1234567890abcdef1234567890abcdef12345678",
+      value: "0",
+      gas: "21000",
+      gasPrice: "1",
+      type: "legacy",
+    });
+    expect(res.error).toBeDefined();
+    expect(res.error!.code).toBe(RPC_ERRORS.POLICY_DENIED);
+    expect(res.error!.message).toContain("chainId is required");
+  }, 10_000);
+
+  it("should reject contract creation when allowContractCreation is false", async () => {
+    const socketPath = await startTestDaemon();
+    const res = await sendRpc(socketPath, RPC_METHODS.SIGN_TRANSACTION, {
+      chainId: 1,
+      data: "0x6000",
+      value: "0",
+      gas: "100000",
+      gasPrice: "1",
+      type: "legacy",
+    });
+    expect(res.error).toBeDefined();
+    expect(res.error!.code).toBe(RPC_ERRORS.POLICY_DENIED);
+    expect(res.error!.message).toContain("Contract creation is disabled");
+  }, 10_000);
+
+  it("should allow contract creation when allowContractCreation is true", async () => {
+    const socketPath = await startTestDaemon((policy) => {
+      policy.allowContractCreation = true;
+    });
+    const res = await sendRpc(socketPath, RPC_METHODS.SIGN_TRANSACTION, {
+      chainId: 1,
+      data: "0x6000",
+      value: "0",
+      gas: "100000",
+      gasPrice: "1",
+      type: "legacy",
+    });
+    expect(res.error).toBeUndefined();
+    expect(typeof res.result).toBe("string");
+    expect((res.result as string).startsWith("0x")).toBe(true);
+  }, 10_000);
+
   it("should reject transaction exceeding value cap", async () => {
     const socketPath = await startTestDaemon();
     const res = await sendRpc(socketPath, RPC_METHODS.SIGN_TRANSACTION, {
@@ -551,6 +630,106 @@ describe("Signer — daemon integration", () => {
     });
     expect(res.error).toBeDefined();
     expect(res.error!.code).toBe(RPC_ERRORS.INTERNAL_ERROR);
+  }, 10_000);
+});
+
+describe("Signer — daemon hardening", () => {
+  let tmpDir: string;
+  let prevConfigDir: string | undefined;
+
+  const TEST_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+
+  beforeEach(() => {
+    tmpDir = mkdtempSync(join(tmpdir(), "agentek-signer-hardening-"));
+    prevConfigDir = process.env.AGENTEK_CONFIG_DIR;
+    process.env.AGENTEK_CONFIG_DIR = tmpDir;
+  });
+
+  afterEach(() => {
+    try { stopDaemon(); } catch {}
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    if (prevConfigDir === undefined) delete process.env.AGENTEK_CONFIG_DIR;
+    else process.env.AGENTEK_CONFIG_DIR = prevConfigDir;
+  });
+
+  function pingDaemon(): Promise<JsonRpcResponse> {
+    return new Promise((resolve, reject) => {
+      const socket = connect(getSocketPath(), () => {
+        socket.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: RPC_METHODS.PING }) + "\n");
+      });
+
+      let buffer = "";
+      const timeout = setTimeout(() => {
+        socket.destroy();
+        reject(new Error("ping timeout"));
+      }, 5_000);
+
+      socket.on("data", (chunk) => {
+        buffer += chunk.toString();
+        const idx = buffer.indexOf("\n");
+        if (idx !== -1) {
+          clearTimeout(timeout);
+          socket.destroy();
+          try {
+            resolve(JSON.parse(buffer.slice(0, idx)));
+          } catch {
+            reject(new Error("invalid ping response"));
+          }
+        }
+      });
+
+      socket.on("error", (err) => {
+        clearTimeout(timeout);
+        reject(err);
+      });
+    });
+  }
+
+  it("should close oversized RPC frames without crashing the daemon", async () => {
+    const policy = defaultPolicy();
+    policy.requireApproval = "never";
+
+    await startDaemon({
+      privateKey: TEST_KEY,
+      policy,
+    });
+
+    await new Promise<void>((resolve, reject) => {
+      const socket = connect(getSocketPath(), () => {
+        socket.write("x".repeat(300 * 1024));
+      });
+
+      let settled = false;
+      const settle = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        fn();
+      };
+
+      const timeout = setTimeout(() => {
+        socket.destroy();
+        settle(() => reject(new Error("oversized frame was not closed in time")));
+      }, 5_000);
+
+      socket.on("close", () => {
+        clearTimeout(timeout);
+        settle(resolve);
+      });
+
+      socket.on("error", (err) => {
+        clearTimeout(timeout);
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code === "EPIPE" || code === "ECONNRESET") {
+          settle(resolve);
+          return;
+        }
+        settle(() => reject(err));
+      });
+    });
+
+    const ping = await pingDaemon();
+    expect(ping.error).toBeUndefined();
+    expect(ping.result).toBe("pong");
   }, 10_000);
 });
 

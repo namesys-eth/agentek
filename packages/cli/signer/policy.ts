@@ -8,8 +8,8 @@ export interface PolicyResult {
 }
 
 export interface TxRequest {
-  chainId?: number;
-  to?: string;
+  chainId?: number | null;
+  to?: string | null;
   value?: bigint | string;
   data?: string;
 }
@@ -18,6 +18,7 @@ export function defaultPolicy(): PolicyConfig {
   return {
     maxValuePerTx: "0.1",
     allowedChains: [1, 8453, 42161, 137, 10],
+    allowContractCreation: false,
     blockedContracts: [],
     allowedContracts: [],
     blockedFunctions: [],
@@ -28,19 +29,38 @@ export function defaultPolicy(): PolicyConfig {
 
 export function evaluatePolicy(policy: PolicyConfig, tx: TxRequest): PolicyResult {
   // 1. Chain check
-  if (tx.chainId !== undefined && policy.allowedChains.length > 0) {
-    if (!policy.allowedChains.includes(tx.chainId)) {
-      return {
-        allowed: false,
-        needsApproval: false,
-        reason: `Chain ${tx.chainId} is not in the allowed list: [${policy.allowedChains.join(", ")}]`,
-      };
-    }
+  const chainId = tx.chainId;
+  if (!Number.isInteger(chainId) || (chainId as number) <= 0) {
+    return {
+      allowed: false,
+      needsApproval: false,
+      reason: "Transaction chainId is required and must be a positive integer",
+    };
+  }
+  const normalizedChainId = chainId as number;
+  if (policy.allowedChains.length > 0 && !policy.allowedChains.includes(normalizedChainId)) {
+    return {
+      allowed: false,
+      needsApproval: false,
+      reason: `Chain ${normalizedChainId} is not in the allowed list: [${policy.allowedChains.join(", ")}]`,
+    };
   }
 
-  const to = tx.to?.toLowerCase();
+  const hasExplicitTo = tx.to !== undefined && tx.to !== null;
+  const isContractCreation = !hasExplicitTo;
+  const to = typeof tx.to === "string" ? tx.to.toLowerCase() : undefined;
+  const allowContractCreation = policy.allowContractCreation ?? false;
 
-  // 2. Blocked contracts
+  // 2. Contract creation
+  if (isContractCreation && !allowContractCreation) {
+    return {
+      allowed: false,
+      needsApproval: false,
+      reason: "Contract creation is disabled by policy",
+    };
+  }
+
+  // 3. Blocked contracts
   if (to && policy.blockedContracts.length > 0) {
     if (policy.blockedContracts.includes(to)) {
       return {
@@ -51,7 +71,7 @@ export function evaluatePolicy(policy: PolicyConfig, tx: TxRequest): PolicyResul
     }
   }
 
-  // 3. Allowed contracts (if non-empty, only allow those)
+  // 4. Allowed contracts (if non-empty, only allow those)
   if (to && policy.allowedContracts.length > 0) {
     if (!policy.allowedContracts.includes(to)) {
       return {
@@ -62,7 +82,7 @@ export function evaluatePolicy(policy: PolicyConfig, tx: TxRequest): PolicyResul
     }
   }
 
-  // 4. Blocked function selectors
+  // 5. Blocked function selectors
   if (tx.data && tx.data.length >= 10 && policy.blockedFunctions.length > 0) {
     const selector = tx.data.slice(0, 10).toLowerCase();
     if (policy.blockedFunctions.includes(selector)) {
@@ -74,7 +94,7 @@ export function evaluatePolicy(policy: PolicyConfig, tx: TxRequest): PolicyResul
     }
   }
 
-  // 5. Value cap
+  // 6. Value cap
   const txValue = typeof tx.value === "string" ? BigInt(tx.value) : (tx.value ?? 0n);
   const maxValue = parseEther(policy.maxValuePerTx);
 
@@ -86,7 +106,7 @@ export function evaluatePolicy(policy: PolicyConfig, tx: TxRequest): PolicyResul
     };
   }
 
-  // 6. Approval logic
+  // 7. Approval logic
   if (policy.requireApproval === "always") {
     return { allowed: true, needsApproval: true };
   }

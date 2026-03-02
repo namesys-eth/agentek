@@ -1,4 +1,4 @@
-import { parseEther, type Hex, isHex } from "viem";
+import { parseEther, isHex } from "viem";
 import { outputJson, outputError } from "../utils/output.js";
 import { readLine } from "../utils/readline.js";
 import { keyfileExists, readKeyfile, writeKeyfile, encrypt, decrypt } from "../signer/crypto.js";
@@ -112,6 +112,9 @@ export async function handleSigner(args: string[]): Promise<void> {
     }
 
     const { payload, passphrase } = await unlockKeyfile();
+    if (payload.policy.allowContractCreation === undefined) {
+      payload.policy.allowContractCreation = false;
+    }
 
     const policyAction = args[1];
     if (policyAction === "set") {
@@ -144,8 +147,14 @@ export async function handleSigner(args: string[]): Promise<void> {
           outputError("allowedChains must be a comma-separated list of positive integers");
         }
         policy.allowedChains = chains;
+      } else if (field === "allowContractCreation") {
+        const normalized = value.trim().toLowerCase();
+        if (!["true", "false"].includes(normalized)) {
+          outputError("allowContractCreation must be true or false");
+        }
+        policy.allowContractCreation = normalized === "true";
       } else {
-        outputError(`Unknown policy field: ${field}. Known: maxValuePerTx, requireApproval, approvalThresholdPct, allowedChains`);
+        outputError(`Unknown policy field: ${field}. Known: maxValuePerTx, requireApproval, approvalThresholdPct, allowedChains, allowContractCreation`);
       }
 
       const keyfile = encrypt(payload, passphrase);

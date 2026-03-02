@@ -99,6 +99,7 @@ export interface DecryptedPayload {
 export interface PolicyConfig {
   maxValuePerTx: string; // ETH, e.g. "0.1"
   allowedChains: number[];
+  allowContractCreation: boolean;
   blockedContracts: string[]; // lowercase addresses
   allowedContracts: string[]; // lowercase addresses, empty = allow all
   blockedFunctions: string[]; // 4-byte selectors, e.g. "0x095ea7b3"
