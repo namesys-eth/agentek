@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { createTool, AgentekClient } from "../client.js";
+import { assertOkResponse } from "../utils/fetch.js";
 
 const getLatestCoindeskNewsToolParams = z.object({
   limit: z.number().min(1).max(100).default(10).describe("Number of articles to fetch (1-100). Default: 10"),
@@ -38,11 +39,7 @@ export const createCoindeskNewsTool = (apiKey: string) => {
 
       try {
         const response = await fetch(url.toString(), options);
-        if (!response.ok) {
-          throw new Error(
-            `Coindesk API error: ${response.status} ${response.statusText}`,
-          );
-        }
+        await assertOkResponse(response, "Coindesk API error");
         const json = await response.json();
         return { articles: json.articles || [] };
       } catch (err) {

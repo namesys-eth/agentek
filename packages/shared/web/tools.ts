@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTool } from "../client.js";
 import * as cheerio from "cheerio";
+import { assertOkResponse } from "../utils/fetch.js";
 
 export const scrapeWebContent = createTool({
   name: "scrapeWebContent",
@@ -14,9 +15,7 @@ export const scrapeWebContent = createTool({
 
     try {
       const response = await fetch(website);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch URL (status: ${response.status}).`);
-      }
+      await assertOkResponse(response, "Failed to fetch URL");
       const html = await response.text();
 
       const $ = cheerio.load(html);
