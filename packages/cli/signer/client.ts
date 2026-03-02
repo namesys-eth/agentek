@@ -1,6 +1,6 @@
 import { connect, type Socket } from "node:net";
 import { toAccount } from "viem/accounts";
-import type { Hex, TransactionSerializable, LocalAccount, Account } from "viem";
+import { isHex, toHex, type Account, type Hex, type SignableMessage, type TransactionSerializable, type TypedDataDefinition } from "viem";
 import {
   getSocketPath,
   RPC_METHODS,
@@ -9,6 +9,24 @@ import {
 } from "./protocol.js";
 
 let rpcIdCounter = 0;
+
+function rpcReplacer(_key: string, value: unknown): unknown {
+  return typeof value === "bigint" ? value.toString() : value;
+}
+
+function normalizeSignableMessage(message: SignableMessage): SignableMessage {
+  if (typeof message === "string") return message;
+
+  const raw = message.raw;
+  if (typeof raw === "string") {
+    if (!isHex(raw)) {
+      throw new Error("Invalid raw message: expected hex string");
+    }
+    return { raw };
+  }
+
+  return { raw: toHex(raw) };
+}
 
 function sendRpcRequest(method: string, params?: unknown): Promise<JsonRpcResponse> {
   return new Promise((resolve, reject) => {
@@ -23,7 +41,7 @@ function sendRpcRequest(method: string, params?: unknown): Promise<JsonRpcRespon
     };
 
     const socket: Socket = connect(socketPath, () => {
-      socket.write(JSON.stringify(request) + "\n");
+      socket.write(JSON.stringify(request, rpcReplacer) + "\n");
     });
 
     let buffer = "";
@@ -69,34 +87,30 @@ export async function getDaemonAddress(): Promise<Hex> {
   return res.result as Hex;
 }
 
+export async function shutdownDaemon(): Promise<void> {
+  const res = await sendRpcRequest(RPC_METHODS.SHUTDOWN);
+  if (res.error) throw new Error(res.error.message);
+}
+
 export function createDaemonAccount(address: Hex): Account {
   return toAccount({
     address,
 
     async signMessage({ message }): Promise<Hex> {
-      const msg = typeof message === "string" ? message : (() => {
-        if (typeof message === "object" && "raw" in message) {
-          const raw = message.raw;
-          return typeof raw === "string" ? raw : Buffer.from(raw).toString("hex");
-        }
-        return String(message);
-      })();
-      const res = await sendRpcRequest(RPC_METHODS.SIGN_MESSAGE, { message: msg });
+      const res = await sendRpcRequest(RPC_METHODS.SIGN_MESSAGE, {
+        message: normalizeSignableMessage(message),
+      });
       if (res.error) throw new Error(res.error.message);
       return res.result as Hex;
     },
 
     async signTransaction(tx: TransactionSerializable): Promise<Hex> {
-      // Convert BigInt values to strings for JSON serialization
-      const serializable = JSON.parse(JSON.stringify(tx, (_key, value) =>
-        typeof value === "bigint" ? value.toString() : value,
-      ));
-      const res = await sendRpcRequest(RPC_METHODS.SIGN_TRANSACTION, serializable);
+      const res = await sendRpcRequest(RPC_METHODS.SIGN_TRANSACTION, tx);
       if (res.error) throw new Error(res.error.message);
       return res.result as Hex;
     },
 
-    async signTypedData(typedData: any): Promise<Hex> {
+    async signTypedData(typedData: TypedDataDefinition): Promise<Hex> {
       const res = await sendRpcRequest(RPC_METHODS.SIGN_TYPED_DATA, typedData);
       if (res.error) throw new Error(res.error.message);
       return res.result as Hex;

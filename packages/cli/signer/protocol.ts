@@ -38,6 +38,7 @@ export const RPC_METHODS = {
   SIGN_TRANSACTION: "sign_transaction",
   SIGN_MESSAGE: "sign_message",
   SIGN_TYPED_DATA: "sign_typed_data",
+  SHUTDOWN: "shutdown",
   PING: "ping",
 } as const;
 

@@ -1,10 +1,10 @@
-import { type Hex, isHex } from "viem";
+import { parseEther, type Hex, isHex } from "viem";
 import { outputJson, outputError } from "../utils/output.js";
 import { readLine } from "../utils/readline.js";
 import { keyfileExists, readKeyfile, writeKeyfile, encrypt, decrypt } from "../signer/crypto.js";
 import { defaultPolicy } from "../signer/policy.js";
 import { startDaemon, stopDaemon, getDaemonStatus } from "../signer/daemon.js";
-import { isDaemonReachable, getDaemonAddress } from "../signer/client.js";
+import { isDaemonReachable, getDaemonAddress, shutdownDaemon } from "../signer/client.js";
 import type { DecryptedPayload, PolicyConfig } from "../signer/protocol.js";
 
 /** Prompt for passphrase and decrypt the keyfile. */
@@ -76,11 +76,19 @@ export async function handleSigner(args: string[]): Promise<void> {
     }
 
     try {
-      process.kill(status.pid!, "SIGTERM");
-    } catch {}
+      const reachable = await isDaemonReachable();
+      if (!reachable) {
+        // Socket unreachable while pidfile exists => stale local state.
+        stopDaemon();
+        process.stderr.write(`Signer daemon appears unreachable (stale state for PID ${status.pid}). Cleaned local state only.\n`);
+        outputJson({ ok: true, wasRunning: false, staleStateCleaned: true, pid: status.pid });
+      }
 
-    // Clean up
-    stopDaemon();
+      await shutdownDaemon();
+    } catch (err: any) {
+      outputError(`Failed to stop daemon cleanly: ${err?.message || "unknown error"}`);
+    }
+
     process.stderr.write("Daemon stopped.\n");
     outputJson({ ok: true, wasRunning: true });
   } else if (sub === "status") {
@@ -91,7 +99,8 @@ export async function handleSigner(args: string[]): Promise<void> {
         const addr = await getDaemonAddress();
         outputJson({ running: true, pid: status.pid, address: addr, reachable: true });
       } else {
-        outputJson({ running: true, pid: status.pid, reachable: false });
+        stopDaemon();
+        outputJson({ running: false, staleStateCleaned: true, pid: status.pid, reachable: false });
       }
     } else {
       outputJson({ running: false });
@@ -113,6 +122,11 @@ export async function handleSigner(args: string[]): Promise<void> {
 
       const policy = payload.policy;
       if (field === "maxValuePerTx") {
+        try {
+          parseEther(value);
+        } catch {
+          outputError("maxValuePerTx must be a valid ETH amount (e.g. 0.1)");
+        }
         policy.maxValuePerTx = value;
       } else if (field === "requireApproval") {
         if (!["always", "above_threshold", "never"].includes(value)) {
@@ -124,7 +138,11 @@ export async function handleSigner(args: string[]): Promise<void> {
         if (isNaN(n) || n < 0 || n > 100) outputError("approvalThresholdPct must be 0-100");
         policy.approvalThresholdPct = n;
       } else if (field === "allowedChains") {
-        policy.allowedChains = value.split(",").map(Number);
+        const chains = value.split(",").map((s) => Number(s.trim()));
+        if (chains.length === 0 || chains.some((n) => !Number.isInteger(n) || n <= 0)) {
+          outputError("allowedChains must be a comma-separated list of positive integers");
+        }
+        policy.allowedChains = chains;
       } else {
         outputError(`Unknown policy field: ${field}. Known: maxValuePerTx, requireApproval, approvalThresholdPct, allowedChains`);
       }

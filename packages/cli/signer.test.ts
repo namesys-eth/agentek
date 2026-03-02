@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { join } from "node:path";
 import { mkdtempSync, rmSync, unlinkSync, existsSync, writeFileSync, chmodSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createServer, connect, type Server } from "node:net";
 import { encrypt, decrypt } from "./signer/crypto.js";
 import { defaultPolicy, evaluatePolicy } from "./signer/policy.js";
+import { createDaemonAccount } from "./signer/client.js";
 import { privateKeyToAccount } from "viem/accounts";
-import { parseEther, type Hex, type TransactionSerializable } from "viem";
+import type { Hex, SignableMessage, TransactionSerializable, TypedDataDefinition } from "viem";
 import type { DecryptedPayload, JsonRpcRequest, JsonRpcResponse, AgentekKeyfile } from "./signer/protocol.js";
 import { RPC_METHODS, RPC_ERRORS } from "./signer/protocol.js";
 
@@ -269,6 +270,7 @@ describe("Signer — policy", () => {
 describe("Signer — daemon integration", () => {
   let tmpDir: string;
   let server: Server | null = null;
+  let prevConfigDir: string | undefined;
 
   const TEST_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80" as Hex;
   const TEST_ADDRESS = "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266";
@@ -311,6 +313,8 @@ describe("Signer — daemon integration", () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), "agentek-signer-test-"));
+    prevConfigDir = process.env.AGENTEK_CONFIG_DIR;
+    process.env.AGENTEK_CONFIG_DIR = tmpDir;
   });
 
   afterEach(() => {
@@ -319,14 +323,19 @@ describe("Signer — daemon integration", () => {
       server = null;
     }
     try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+    if (prevConfigDir === undefined) delete process.env.AGENTEK_CONFIG_DIR;
+    else process.env.AGENTEK_CONFIG_DIR = prevConfigDir;
   });
 
   /** Start a minimal in-process daemon on a Unix socket for testing. */
-  function startTestDaemon(): Promise<string> {
+  function startTestDaemon(
+    policyMutator?: (policy: ReturnType<typeof defaultPolicy>) => void,
+  ): Promise<string> {
     const socketPath = join(tmpDir, "signer.sock");
     const account = privateKeyToAccount(TEST_KEY);
     const policy = defaultPolicy();
     policy.requireApproval = "never"; // no interactive prompts in tests
+    policyMutator?.(policy);
 
     return new Promise((promiseResolve, promiseReject) => {
       if (existsSync(socketPath)) {
@@ -383,7 +392,12 @@ describe("Signer — daemon integration", () => {
         const tx = params as any;
         if (!tx) return { jsonrpc: "2.0", id, error: { code: RPC_ERRORS.INVALID_PARAMS, message: "Missing params" } };
 
-        const policyResult = evaluatePolicy(policy, tx);
+        let policyResult;
+        try {
+          policyResult = evaluatePolicy(policy, tx);
+        } catch (err: any) {
+          return { jsonrpc: "2.0", id, error: { code: RPC_ERRORS.INTERNAL_ERROR, message: err.message } };
+        }
         if (!policyResult.allowed) {
           return { jsonrpc: "2.0", id, error: { code: RPC_ERRORS.POLICY_DENIED, message: policyResult.reason || "Policy denied" } };
         }
@@ -397,10 +411,21 @@ describe("Signer — daemon integration", () => {
       }
 
       case RPC_METHODS.SIGN_MESSAGE: {
-        const p = params as { message: string } | undefined;
+        const p = params as { message: SignableMessage } | undefined;
         if (!p?.message) return { jsonrpc: "2.0", id, error: { code: RPC_ERRORS.INVALID_PARAMS, message: "Missing message" } };
         try {
           const sig = await account.signMessage({ message: p.message });
+          return { jsonrpc: "2.0", id, result: sig };
+        } catch (err: any) {
+          return { jsonrpc: "2.0", id, error: { code: RPC_ERRORS.INTERNAL_ERROR, message: err.message } };
+        }
+      }
+
+      case RPC_METHODS.SIGN_TYPED_DATA: {
+        const p = params as TypedDataDefinition | undefined;
+        if (!p) return { jsonrpc: "2.0", id, error: { code: RPC_ERRORS.INVALID_PARAMS, message: "Missing typed data" } };
+        try {
+          const sig = await account.signTypedData(p);
           return { jsonrpc: "2.0", id, result: sig };
         } catch (err: any) {
           return { jsonrpc: "2.0", id, error: { code: RPC_ERRORS.INTERNAL_ERROR, message: err.message } };
@@ -477,6 +502,56 @@ describe("Signer — daemon integration", () => {
     expect(typeof res.result).toBe("string");
     expect((res.result as string).startsWith("0x")).toBe(true);
   }, 10_000);
+
+  it("should preserve raw message semantics when signing", async () => {
+    const socketPath = await startTestDaemon();
+    const raw = "0x010203";
+    const res = await sendRpc(socketPath, RPC_METHODS.SIGN_MESSAGE, { message: { raw } });
+    expect(res.error).toBeUndefined();
+    const expected = await privateKeyToAccount(TEST_KEY).signMessage({ message: { raw } });
+    expect(res.result).toBe(expected);
+  }, 10_000);
+
+  it("daemon account should sign typed data with bigint fields", async () => {
+    await startTestDaemon();
+    const daemonAccount = createDaemonAccount(TEST_ADDRESS as Hex);
+    const typedData = {
+      domain: {
+        name: "Agentek",
+        version: "1",
+        chainId: 1,
+        verifyingContract: "0x0000000000000000000000000000000000000001",
+      },
+      types: {
+        Transfer: [
+          { name: "to", type: "address" },
+          { name: "amount", type: "uint256" },
+        ],
+      },
+      primaryType: "Transfer",
+      message: {
+        to: "0x1234567890abcdef1234567890abcdef12345678",
+        amount: 1234567890123456789n,
+      },
+    } as const;
+
+    const expected = await privateKeyToAccount(TEST_KEY).signTypedData(typedData);
+    const actual = await daemonAccount.signTypedData(typedData);
+    expect(actual).toBe(expected);
+  }, 10_000);
+
+  it("should return INTERNAL_ERROR when policy is invalid", async () => {
+    const socketPath = await startTestDaemon((policy) => {
+      policy.maxValuePerTx = "not-an-eth-amount";
+    });
+    const res = await sendRpc(socketPath, RPC_METHODS.SIGN_TRANSACTION, {
+      chainId: 1,
+      to: "0x1234567890abcdef1234567890abcdef12345678",
+      value: "1",
+    });
+    expect(res.error).toBeDefined();
+    expect(res.error!.code).toBe(RPC_ERRORS.INTERNAL_ERROR);
+  }, 10_000);
 });
 
 // ── CLI: signer command ─────────────────────────────────────────────────────
@@ -511,5 +586,26 @@ describe("CLI — signer command", () => {
     expect(exitCode).toBe(1);
     const err = parseJson(stderr);
     expect(err.error).toContain("No keyfile");
+  });
+
+  it("signer stop should not kill unrelated PID when daemon is unreachable", async () => {
+    const sleeper = spawn("node", ["-e", "setTimeout(() => {}, 30000)"], { stdio: "ignore" });
+    expect(sleeper.pid).toBeDefined();
+
+    try {
+      writeFileSync(join(tmpDir, "signer.pid"), String(sleeper.pid), { mode: 0o600 });
+      writeFileSync(join(tmpDir, "signer.sock"), "stale-socket", { mode: 0o600 });
+
+      const { stdout, exitCode } = await run(["signer", "stop"], { AGENTEK_CONFIG_DIR: tmpDir });
+      expect(exitCode).toBe(0);
+
+      const result = parseJson(stdout);
+      expect(result.ok).toBe(true);
+      expect(result.wasRunning).toBe(false);
+      expect(result.staleStateCleaned).toBe(true);
+      expect(() => process.kill(sleeper.pid!, 0)).not.toThrow();
+    } finally {
+      sleeper.kill("SIGTERM");
+    }
   });
 });

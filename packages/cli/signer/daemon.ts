@@ -2,7 +2,7 @@ import { createServer, type Server } from "node:net";
 import { existsSync, readFileSync, writeFileSync, unlinkSync, chmodSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { privateKeyToAccount } from "viem/accounts";
-import type { Hex, TransactionSerializable, TypedDataDefinition } from "viem";
+import type { Hex, SignableMessage, TransactionSerializable, TypedDataDefinition } from "viem";
 import {
   getSocketPath,
   getPidfilePath,
@@ -22,6 +22,17 @@ function makeResponse(id: number, result: unknown): JsonRpcResponse {
 
 function makeError(id: number, code: number, message: string): JsonRpcResponse {
   return { jsonrpc: "2.0", id, error: { code, message } };
+}
+
+function formatMessagePreview(message: SignableMessage): string {
+  if (typeof message === "string") {
+    return message.length > 80 ? `${message.slice(0, 80)}...` : message;
+  }
+
+  const raw = typeof message.raw === "string"
+    ? message.raw
+    : `0x${Buffer.from(message.raw).toString("hex")}`;
+  return raw.length > 80 ? `${raw.slice(0, 80)}...` : raw;
 }
 
 function promptApproval(message: string, timeoutMs: number): Promise<boolean> {
@@ -129,7 +140,16 @@ async function handleMessage(
       const tx = params as TxRequest & TransactionSerializable;
       if (!tx) return makeError(id, RPC_ERRORS.INVALID_PARAMS, "Missing transaction params");
 
-      const policyResult = evaluatePolicy(policy, tx);
+      let policyResult;
+      try {
+        policyResult = evaluatePolicy(policy, tx);
+      } catch (err: any) {
+        return makeError(
+          id,
+          RPC_ERRORS.INTERNAL_ERROR,
+          `Invalid signer policy configuration: ${err?.message || "unknown error"}`,
+        );
+      }
       if (!policyResult.allowed) {
         return makeError(id, RPC_ERRORS.POLICY_DENIED, policyResult.reason || "Policy denied");
       }
@@ -154,11 +174,11 @@ async function handleMessage(
     }
 
     case RPC_METHODS.SIGN_MESSAGE: {
-      const p = params as { message: string } | undefined;
+      const p = params as { message: SignableMessage } | undefined;
       if (!p?.message) return makeError(id, RPC_ERRORS.INVALID_PARAMS, "Missing message param");
 
       if (policy.requireApproval !== "never") {
-        const preview = p.message.length > 80 ? p.message.slice(0, 80) + "..." : p.message;
+        const preview = formatMessagePreview(p.message);
         const approved = await promptApproval(
           `Sign message: "${preview}"?`,
           60_000,
@@ -198,6 +218,13 @@ async function handleMessage(
       }
     }
 
+    case RPC_METHODS.SHUTDOWN:
+      setTimeout(() => {
+        stopDaemon();
+        process.exit(0);
+      }, 20);
+      return makeResponse(id, { ok: true });
+
     default:
       return makeError(id, RPC_ERRORS.METHOD_NOT_FOUND, `Unknown method: ${method}`);
   }
@@ -222,6 +249,7 @@ export function stopDaemon(): void {
 }
 
 export function getDaemonStatus(): { running: boolean; pid?: number } {
+  const socketPath = getSocketPath();
   const pidfilePath = getPidfilePath();
   if (!existsSync(pidfilePath)) {
     return { running: false };
@@ -229,6 +257,13 @@ export function getDaemonStatus(): { running: boolean; pid?: number } {
 
   const pid = parseInt(readFileSync(pidfilePath, "utf-8").trim(), 10);
   if (isNaN(pid)) {
+    try { unlinkSync(pidfilePath); } catch {}
+    return { running: false };
+  }
+
+  // Require the daemon socket to exist; a live PID alone is unsafe to trust.
+  if (!existsSync(socketPath)) {
+    try { unlinkSync(pidfilePath); } catch {}
     return { running: false };
   }
 
