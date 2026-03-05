@@ -16,7 +16,8 @@ overrides:
   minimatch: '>=10.2.1'
   rollup: '>=4.59.0'
   ajv: '>=8.18.0'
-  hono: '>=4.11.10'
+  hono: '>=4.12.4'
+  '@hono/node-server': '>=1.19.10'
 
 importers:
 
@@ -137,14 +138,14 @@ importers:
   packages/shared:
     dependencies:
       '@x402/core':
-        specifier: latest
-        version: 2.4.0
+        specifier: ^2.4.0
+        version: 2.5.0
       '@x402/evm':
-        specifier: latest
-        version: 2.4.0(ethers@6.16.0)(typescript@5.9.2)
+        specifier: ^2.4.0
+        version: 2.5.0(ethers@6.16.0)(typescript@5.9.2)
       '@x402/fetch':
-        specifier: latest
-        version: 2.4.0(typescript@5.9.2)
+        specifier: ^2.4.0
+        version: 2.5.0(typescript@5.9.2)
       cheerio:
         specifier: ^1.1.2
         version: 1.1.2
@@ -514,11 +515,11 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@hono/node-server@1.19.9':
-    resolution: {integrity: sha512-vHL6w3ecZsky+8P5MD+eFfaGTyCeOHUIFYMGpQGbrBTSmNNoxv0if69rEZ5giu36weC5saFuznL411gRX7bJDw==}
+  '@hono/node-server@1.19.11':
+    resolution: {integrity: sha512-dr8/3zEaB+p0D2n/IUrlPF1HZm586qgJNXK1a9fhg/PzdtkK7Ksd5l312tJX2yBuALqDYBlG20QEbayqPyxn+g==}
     engines: {node: '>=18.14.1'}
     peerDependencies:
-      hono: '>=4.11.10'
+      hono: '>=4.12.4'
 
   '@jridgewell/gen-mapping@0.3.8':
     resolution: {integrity: sha512-imAbBGkb+ebQyxKgzv5Hu2nmROxoDOXHh80evxdoXNOrvAnVx7zimzc1Oo5h9RlfV4vPXaE2iM5pOFbvOCClWA==}
@@ -796,17 +797,17 @@ packages:
   '@vitest/utils@3.2.4':
     resolution: {integrity: sha512-fB2V0JFrQSMsCo9HiSq3Ezpdv4iYaXRG1Sx8edX3MwxfyNn83mKiGzOcH+Fkxt4MHxr3y42fQi1oeAInqgX2QA==}
 
-  '@x402/core@2.4.0':
-    resolution: {integrity: sha512-g4K5dAVjevQftxCcpFlUDjO2AHE43FkO43VxwLCQ8ET3ki4aj2fzCcgvnXEj2eloJoocFS/Evt4pSTnP/4cFJw==}
+  '@x402/core@2.5.0':
+    resolution: {integrity: sha512-nUr8HW8WhkU1DvrpUfsRvALy5NF8UWKoFezZOtX61mohxp2lWZpJ2GnvscxDM8nmBAbtIollmksd5z5pj8InXw==}
 
-  '@x402/evm@2.4.0':
-    resolution: {integrity: sha512-k9qIEhJ5m8jZLPA44hcLEP9I1WC8nF375A7pX/3XGPA+H2UPUoY8fzBaQA2U+4lMv/eIyfz05klSj/8LzP1saA==}
+  '@x402/evm@2.5.0':
+    resolution: {integrity: sha512-MBSTQZwLobMVcmYO7itOMJRkxfHstsDyr7F94o9Rk/Oinz0kjvCe4DFgZmFXyz3nQUgQFmDVgTK5KIzfYR5uIA==}
 
-  '@x402/extensions@2.4.0':
-    resolution: {integrity: sha512-tg/mSAS+NgwUaOdjt8agSjVkO1s9NYy+kSPubVlZf/Fy884qu7dSW81Ixu1NRYEz+vBk0rtz6b+eEvS0v72tMQ==}
+  '@x402/extensions@2.5.0':
+    resolution: {integrity: sha512-e7IQShbGUM/XQmzI8DQh2tX/k2XDUGI9DNF+ij2NHUyPEqAt5/mJCwOlaxS/60FWFdfFRfWjTsqaoS7Z8WLi+A==}
 
-  '@x402/fetch@2.4.0':
-    resolution: {integrity: sha512-OOMaPAT85qcKnKWRvB4zZlC/CUod0YogCpbLmi555Puxeh7u69mA30MWkNsyzMfhKS1y+GHiG9eZZbpYFmLMTg==}
+  '@x402/fetch@2.5.0':
+    resolution: {integrity: sha512-D2jH3bn0nf8w9Jg3Vxo+6reE6Z9GickzkSIw+udITJFvsrGOpfjZvhcTeflLcthCODk4Nuu9Oe8x7Q3NLUdaRQ==}
 
   abitype@1.0.8:
     resolution: {integrity: sha512-ZeiI6h3GnW06uYDLx0etQtX/p8E24UaHHBj57RSjK7YBFe7iuVn07EDpOeP451D06sF27VOz9JJPlIKJmXgkEg==}
@@ -1229,8 +1230,8 @@ packages:
     resolution: {integrity: sha512-0hJU9SCPvmMzIBdZFqNPXWa6dqh7WdH0cII9y+CyS8rG3nL48Bclra9HmKhVVUHyPWNH5Y7xDwAB7bfgSjkUMQ==}
     engines: {node: '>= 0.4'}
 
-  hono@4.12.2:
-    resolution: {integrity: sha512-gJnaDHXKDayjt8ue0n8Gs0A007yKXj4Xzb8+cNjZeYsSzzwKc0Lr+OZgYwVfB0pHfUs17EPoLvrOsEaJ9mj+Tg==}
+  hono@4.12.5:
+    resolution: {integrity: sha512-3qq+FUBtlTHhtYxbxheZgY8NIFnkkC/MR8u5TTsr7YZ3wixryQ3cCwn3iZbg8p8B88iDBBAYSfZDS75t8MN7Vg==}
     engines: {node: '>=16.9.0'}
 
   htmlparser2@10.0.0:
@@ -2193,9 +2194,9 @@ snapshots:
   '@esbuild/win32-x64@0.27.2':
     optional: true
 
-  '@hono/node-server@1.19.9(hono@4.12.2)':
+  '@hono/node-server@1.19.11(hono@4.12.5)':
     dependencies:
-      hono: 4.12.2
+      hono: 4.12.5
 
   '@jridgewell/gen-mapping@0.3.8':
     dependencies:
@@ -2216,7 +2217,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.26.0(zod@3.25.76)':
     dependencies:
-      '@hono/node-server': 1.19.9(hono@4.12.2)
+      '@hono/node-server': 1.19.11(hono@4.12.5)
       ajv: 8.18.0
       ajv-formats: 3.0.1(ajv@8.18.0)
       content-type: 1.0.5
@@ -2226,7 +2227,7 @@ snapshots:
       eventsource-parser: 3.0.6
       express: 5.2.1
       express-rate-limit: 8.2.1(express@5.2.1)
-      hono: 4.12.2
+      hono: 4.12.5
       jose: 6.1.3
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -2447,14 +2448,14 @@ snapshots:
       loupe: 3.2.0
       tinyrainbow: 2.0.0
 
-  '@x402/core@2.4.0':
+  '@x402/core@2.5.0':
     dependencies:
       zod: 3.25.76
 
-  '@x402/evm@2.4.0(ethers@6.16.0)(typescript@5.9.2)':
+  '@x402/evm@2.5.0(ethers@6.16.0)(typescript@5.9.2)':
     dependencies:
-      '@x402/core': 2.4.0
-      '@x402/extensions': 2.4.0(ethers@6.16.0)(typescript@5.9.2)
+      '@x402/core': 2.5.0
+      '@x402/extensions': 2.5.0(ethers@6.16.0)(typescript@5.9.2)
       viem: 2.33.2(typescript@5.9.2)(zod@3.25.76)
       zod: 3.25.76
     transitivePeerDependencies:
@@ -2463,10 +2464,10 @@ snapshots:
       - typescript
       - utf-8-validate
 
-  '@x402/extensions@2.4.0(ethers@6.16.0)(typescript@5.9.2)':
+  '@x402/extensions@2.5.0(ethers@6.16.0)(typescript@5.9.2)':
     dependencies:
       '@scure/base': 1.2.6
-      '@x402/core': 2.4.0
+      '@x402/core': 2.5.0
       ajv: 8.18.0
       siwe: 2.3.2(ethers@6.16.0)
       tweetnacl: 1.0.3
@@ -2478,9 +2479,9 @@ snapshots:
       - typescript
       - utf-8-validate
 
-  '@x402/fetch@2.4.0(typescript@5.9.2)':
+  '@x402/fetch@2.5.0(typescript@5.9.2)':
     dependencies:
-      '@x402/core': 2.4.0
+      '@x402/core': 2.5.0
       viem: 2.33.2(typescript@5.9.2)(zod@3.25.76)
       zod: 3.25.76
     transitivePeerDependencies:
@@ -2991,7 +2992,7 @@ snapshots:
     dependencies:
       function-bind: 1.1.2
 
-  hono@4.12.2: {}
+  hono@4.12.5: {}
 
   htmlparser2@10.0.0:
     dependencies:
