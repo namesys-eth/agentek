@@ -18,7 +18,7 @@ export const TokenSchema = z.object({
    }
    return val as Address;
  }),
- id: z.bigint().optional(),
+ id: z.union([z.number().int(), z.string()]).optional().transform((val) => val !== undefined ? BigInt(val) : undefined),
 });
 
 export type ZToken = z.infer<typeof TokenSchema>;

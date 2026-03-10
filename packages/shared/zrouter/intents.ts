@@ -32,7 +32,7 @@ const swapParameters = z.object({
 });
 
 export const intentSwap = createTool({
-  name: "swap",
+  name: "intentSwap",
   description: "Swap ERC20 or ERC6909 tokens via the zRouter. Automatically handles token approvals, finds the best route (including Matcha/0x aggregation), and executes the swap.",
   supportedChains,
   parameters: swapParameters,
